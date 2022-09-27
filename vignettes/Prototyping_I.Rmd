@@ -1,0 +1,456 @@
+---
+title: "Prototyping_I"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Prototyping_I}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+```{r setup}
+library(MinervaTime)
+```
+
+
+## Jack in the box
+
+The toy jack-in-the-box is a box with a handle. Turning the handle plays music for an unpredictable amount of time, followed by jack popping out of the box.
+
+The situation is analogous to simple acquisition Pavlovian conditioning involving repeated pairing of a cue (e.g., tone or light) and outcome (e.g., food reward).
+
+MINERVA-AL was applied as an instance-theory approach to modeling associative learning phenomena like classical conditioning. However, MINERVA-AL is a trial-level model and does not address any role for temporal dynamics or expectation. For example, MINERVA-AL could be trained on several rounds of playing jack-in-the-box, which would bye the equivalent of many CS+ trials. As a result, MINERVA-AL would learn that given the box, jack will pop out. However, MINERVA-AL would have no within-trial expectation about when Jack will pop out.
+
+The purpose of this modelling effort is to develop a MINERVA account of intra-trial temporal expectations, and inter-trial general expectations.
+
+## Environment vectors
+
+MINERVA-AL represents cues and outcomes in a concatenated feature vector. For example, the first 10 numbers represent the presence or absences of an A feature, the second set of 10 number represent the presence or absence of a B feature, and so on. If A is followed by a reward, then the environmental feature vector would have +1s in the A field, and +1s in the outcome field, and 0s in the other fields. Notably, there is no representation of time between the presentation of the cue and outcome.
+
+We will add a representation of time directly as part of the feature vector. In this way, temporal context features can be represented in memory, and can influence retrieval and echo construction.
+
+We could use a general syntax for generating the environment vectors describing the temporal location of the appearance, duration, and disappearance of cues and outcomes. Something like a MIDI syntax that can be transformed to MINERVA vectors.
+
+### Quick start example
+
+```{r}
+
+veclength <- 10 
+
+cue <- list(features = c(rep(1,veclength)),
+            onset = 1,
+            duration = 100,
+            offset = 100
+)
+outcome <- list(features = c(rep(1,veclength)),
+            onset = 50,
+            duration = 50,
+            offset = 100
+)
+context <- list(features = c(rep(1,veclength)),
+            onset = 1,
+            duration = 200,
+            offset = 200
+)
+
+timesteps <- 1:200
+
+# generate matrix of temporal vectors
+# timepoints closer together in time are more similar
+temporal_matrix <- matrix(1, 
+                          nrow = length(timesteps),
+                          ncol = length(timesteps))
+
+lower <- -2
+upper <- 2
+delta <- row(temporal_matrix) - col(temporal_matrix)
+temporal_matrix[delta < lower | delta > upper] <- 0
+
+# cues
+cue_matrix <- matrix(0,
+                     nrow=length(timesteps),
+                     ncol=length(cue$features))
+
+cue_matrix[cue$onset:cue$offset,] <- cue$features
+
+# outcome
+outcome_matrix <- matrix(0,
+                     nrow=length(timesteps),
+                     ncol=length(outcome$features))
+
+outcome_matrix[outcome$onset:outcome$offset,] <- outcome$features
+
+# context
+context_matrix <- matrix(0,
+                     nrow=length(timesteps),
+                     ncol=length(context$features))
+
+context_matrix[context$onset:context$offset,] <- context$features
+
+# Whole Environment Matrix
+
+environment_matrix <- cbind(cue_matrix,
+                            outcome_matrix,
+                            context_matrix,
+                            temporal_matrix)
+
+```
+
+### Run the model
+
+```{r}
+library(RsemanticLibrarian)
+
+# initialize memory with 5 noise vectors
+noise <- matrix(runif(5*dim(environment_matrix)[2],-1,1)*.05,
+                 nrow = 5,
+                 ncol = dim(environment_matrix)[2])
+
+memory <- matrix(0,
+                 nrow=dim(environment_matrix)[1],
+                 ncol=dim(environment_matrix)[2])
+memory <- rbind(noise,memory)
+
+tau <- 3
+
+save_echo <- matrix(0,
+                    nrow=dim(environment_matrix)[1],
+                    ncol=dim(environment_matrix)[2])
+
+# intra-trial encoding and retrieval
+for (i in 1:dim(environment_matrix)[1]){
+  
+  activations <- c(cosine_x_to_m(environment_matrix[i,],
+                                 memory[1:(4+i),])^tau)
+  echo <- colSums(memory[1:(4+i),]*activations)
+  save_echo[i,] <- echo
+  memory[5+i,] <- environment_matrix[i,]
+
+}
+
+```
+
+### evaluate
+
+```{r}
+
+cue_expectation <- rowMeans(save_echo[,1:10])
+plot(cue_expectation)
+
+outcome_expectation <- rowMeans(save_echo[,11:20])
+plot(outcome_expectation)
+
+```
+
+## Event Representation
+
+In the above example, a cue and outcome event were presented over slices of 200 time points. This section develops a more general approach to describing event representation. 
+
+A trial will refer to a series of time points where events appear and disappear for particular durations, like musical notes placed within a bar.
+
+A timeline will refer to a series of trials. 
+
+Notepad:
+
+- make_trial: a function to name each event and associated onset, duration, offset parameters
+- make_timeline: a function to write a series of trials to a dataframe...Not clear whether a function is useful here. Easier to code specific timelines, possibly useful to create specific timeline functions that are limited to particular cases. E.g., A appears followed by B, where B's onset is defined by a distribution.
+- vectorize_timeline: a function to create environmental vectors for the trials andevents in a timeline
+
+
+```{r, eval = FALSE}
+library(dplyr)
+
+# matrix of event feature vectors
+event_vectors <- matrix(1, ncol = 10, nrow = 10)
+row.names(event_vectors) <- LETTERS[1:10]
+
+# make an event frame, define the events for a single timeslice
+make_trial <- function(trial_num,
+                       event_names,
+                       onsets,
+                       durations) {
+
+  trial <- data.frame(
+    trial_num = trial_num,
+    event = event_names,
+    onset = onsets,
+    duration = durations,
+    offset = onsets+durations
+  )
+
+  return(trial)
+}
+
+# test function
+#make_trial(1,event_names=c("A","B"),c(1,100),durations=50)
+
+# create a timeline of events using a data.frame
+timeline <- data.frame()
+
+for(i in 1:5){
+  new_trial <- make_trial(i,event_names=c("A","B"),c(1,100),durations=50)
+  timeline <- rbind(timeline,new_trial)
+}
+
+# a simple timeline function for generating AB trials
+make_AB_timeline <- function(num_trials =5,
+                                 events = c('A','B'),
+                                 A_onsets = 1,
+                                 A_durations = 50,
+                                 B_onsets = 50,
+                                 B_durations = 50
+                                 ){
+  timeline <- data.frame()
+  
+  for(i in 1:num_trials){
+    
+    A_on <- A_onsets[1]
+    if(length(A_onsets) > 1) A_on <- A_onsets[i]
+    B_on <- B_onsets[1]
+    if(length(B_onsets) > 1) B_on <- B_onsets[i]
+
+    new_trial <- make_trial(i,
+                            event_names=events,
+                            onsets=c(A_on,B_on),
+                            durations=c(A_durations,B_durations))
+    
+    timeline <- rbind(timeline,new_trial)
+  }
+  
+  return(timeline)
+  
+}
+
+make_AB_timeline(
+  num_trials = 5,
+  events = c('A', 'B'),
+  A_onsets = 1,
+  A_durations = 50,
+  B_onsets = round(rnorm(5,100,10)),
+  B_durations = 50
+)
+
+## Another simple timeline
+
+# a simple timeline function for generating AB trials
+make_event_timeline <- function(num_trials = 5,
+                                 events = c('A','B','C'),
+                                 onsets = list(1,round(rnorm(5,50,10)),1),
+                                 durations = list(25,25,199)
+                                 ){
+  timeline <- data.frame()
+  
+  for(i in 1:num_trials){
+    
+    # could functionalize this later
+    process_onsets <- onsets
+    for(o in 1:length(process_onsets)){
+      if(length(process_onsets[[o]]) == 1) {
+        process_onsets[[o]] <- rep(process_onsets[[o]],num_trials)
+      }
+    }
+    process_onsets <- matrix(unlist(process_onsets),nrow=num_trials, byrow=FALSE)
+    
+    process_durations <- durations
+    for(d in 1:length(process_durations)){
+      if(length(process_durations[[d]]) == 1) {
+        process_durations[[d]] <- rep(process_durations[[d]],num_trials)
+      }
+    }
+    process_durations <- matrix(unlist(process_durations),nrow=num_trials, byrow=FALSE)
+
+    new_trial <- make_trial(i,
+                            event_names=events,
+                            onsets=process_onsets[i,],
+                            durations=process_durations[i,])
+    
+    timeline <- rbind(timeline,new_trial)
+  }
+  
+  return(timeline)
+  
+}
+
+make_event_timeline(
+  num_trials = 5,
+  events = c('A', 'B', 'C'),
+  onsets = list(1,rnorm(5,50,10),1),
+  durations = list(25,25,199)
+)
+
+# turn a timeline into a matrix of environmental vectors
+
+# create a matrix of temporal vectors
+
+make_temporal_vectors <- function(num_timesteps = 200, overlap = 2){
+  
+temporal_matrix <- matrix(1, 
+                          nrow = num_timesteps,
+                          ncol = num_timesteps)
+
+lower <- -1*overlap
+upper <- overlap
+delta <- row(temporal_matrix) - col(temporal_matrix)
+temporal_matrix[delta < lower | delta > upper] <- 0
+
+return(temporal_matrix)
+  
+}
+
+temporal_vectors <- make_temporal_vectors()
+
+# make event_vectors
+
+make_event_vectors <- function(event_names = LETTERS[1:10],
+                               vector_length = 10) {
+  event_vectors <- matrix(1,
+                          ncol = vector_length,
+                          nrow = length(event_names))
+  
+  row.names(event_vectors) <- event_names
+  
+  return(event_vectors)
+  
+}
+
+event_vectors <- make_event_vectors(LETTERS[1:10],10)
+
+# Vectorize the timeline
+
+timeline_to_vector <- function(timeline,
+                               event_vectors,
+                               temporal_vectors,
+                               timesteps = 200) {
+  timeline_list <- list()
+  
+  # iterate through each trial
+  for(t in 1:max(timeline$trial_num)){
+    
+    # get events for current trial
+    current_trial <- timeline[timeline$trial_num == t,]
+    
+    # create event vector matrix
+    all_events_matrix <- matrix(nrow = timesteps)
+    for (e in 1:length(current_trial$event)){
+      e_matrix <- matrix(0, 
+                         nrow = timesteps, 
+                         ncol = length(event_vectors[current_trial[e,'event'],]))
+      
+      e_matrix[(current_trial[e,'onset']:current_trial[e,'offset']),] <- event_vectors[current_trial[e,'event'],]
+      
+      #append matrix for each event to whole trial matrix
+     all_events_matrix <-  cbind(all_events_matrix,e_matrix)
+    }
+    all_events_matrix <- all_events_matrix[,-1] # delete column of NAs
+    
+    # append temporal vectors
+    all_events_matrix <- cbind(all_events_matrix,temporal_vectors)
+    
+    # save to list
+    timeline_list[[t]] <- all_events_matrix
+  }
+  
+  return(timeline_list)
+}
+
+timeline_vectors <- timeline_to_vector(timeline,
+                                       event_vectors,
+                                       temporal_vectors,200)
+
+```
+
+
+## Create trials
+
+```{r}
+
+#### BUILD TRAINING SCENARIO
+# e.g., a matrix of environment vectors
+# representing events unfolding over time within a trial
+# with the capability to train multiple trials
+
+
+trial_timesteps <- 200 # define number of time steps per trial
+
+# create a timeline of trials, listing temporal event properties per trial
+timeline <- make_event_timeline(
+ num_trials = 10,
+ events = c('A', 'B', 'C'),
+ onsets = list(1,rnorm(10,50,10),1),
+ durations = list(25,25,199)
+ )
+
+# convert timeline to environment vectors
+temporal_vectors <- make_temporal_vectors(trial_timesteps, overlap = 2)
+event_vectors <- make_event_vectors(LETTERS[1:10],10)
+
+timeline_vectors <- timeline_to_vector(timeline,
+                                       event_vectors,
+                                       temporal_vectors,200)
+
+
+```
+
+## Run model
+
+```{r}
+## define basic model parameters
+
+library(RsemanticLibrarian) # for cosine_x_to_m
+
+# initialize memory with 5 noise vectors
+noise <- matrix(runif(5*dim(environment_matrix)[2],-1,1)*.05,
+                 nrow = 5,
+                 ncol = dim(environment_matrix)[2])
+
+#memory <- matrix(0,
+#                 nrow=dim(environment_matrix)[1],
+#                 ncol=dim(environment_matrix)[2])
+memory <- noise
+
+tau <- 3
+
+## Run the model for each trial
+
+model_results <- list()
+
+for(t in 1:length(timeline_vectors)) {
+  environment_matrix <- timeline_vectors[[t]]
+  
+  save_echo <- matrix(0,
+                      nrow=dim(environment_matrix)[1],
+                      ncol=dim(environment_matrix)[2])
+  
+  # intra-trial encoding and retrieval
+  for (i in 1:dim(environment_matrix)[1]){
+    
+    activations <- c(cosine_x_to_m(environment_matrix[i,],
+                                   memory)^tau)
+    echo <- colSums(memory*activations)
+    save_echo[i,] <- echo
+    memory <- rbind(memory,environment_matrix[i,])
+  
+  }
+  
+  A_expectation <- rowMeans(save_echo[,1:10])
+  #plot(A_expectation)
+  
+  B_expectation <- rowMeans(save_echo[,11:20])
+  #plot(B_expectation)
+  
+  model_results[[t]] <- list(A_expectation = A_expectation,
+                             B_expectation = B_expectation,
+                             save_echo = save_echo)
+
+}
+
+```
+
+
