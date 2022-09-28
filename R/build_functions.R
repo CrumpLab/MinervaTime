@@ -208,18 +208,35 @@ timeline_to_vector <- function(timeline,
     current_trial <- timeline[timeline$trial_num == t,]
 
     # create event vector matrix
-    all_events_matrix <- matrix(nrow = timesteps)
+    all_events_matrix <- matrix(0,
+                                nrow = timesteps,
+                                ncol = dim(event_vectors)[1]*dim(event_vectors)[2])
+
+    # loop through each event name in trial
     for (e in 1:length(current_trial$event)){
+
+      # create blank matrix for event
       e_matrix <- matrix(0,
                          nrow = timesteps,
                          ncol = length(event_vectors[current_trial[e,'event'],]))
 
+      # add event vector for specified durations in matrix
       e_matrix[(current_trial[e,'onset']:current_trial[e,'offset']),] <- event_vectors[current_trial[e,'event'],]
 
       #append matrix for each event to whole trial matrix
-      all_events_matrix <-  cbind(all_events_matrix,e_matrix)
+      #all_events_matrix <-  cbind(all_events_matrix,e_matrix)
+
+      #insert event matrix to it's field position
+      e_name <- current_trial[e,'event']
+      e_row <- which(row.names(event_vectors) %in% e_name)
+      e_length <- length(event_vectors[e_row,])
+      first_ind <- ((e_row-1)*e_length)+1
+      last_ind <- first_ind + (e_length-1)
+      all_events_matrix[ ,first_ind:last_ind] <- e_matrix
+
     }
-    all_events_matrix <- all_events_matrix[,-1] # delete column of NAs
+
+    # all_events_matrix <- all_events_matrix[,-1] # delete column of NAs
 
     # append temporal vectors
     all_events_matrix <- cbind(all_events_matrix,temporal_vectors)

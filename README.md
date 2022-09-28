@@ -9,7 +9,7 @@ The goal of MinervaTime is to implement temporal context representations within 
 
 ## Development notes
 
-This repository is currently under development. Code will generally be created and tested in vignettes, and potentially migrated as functions into this R package.
+This repository is currently under development and in a flux of major breaking changes. Code will generally be created and tested in vignettes, and potentially migrated as functions into this R package.
 
 ## Installation
 
