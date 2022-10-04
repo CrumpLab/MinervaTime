@@ -1,0 +1,228 @@
+---
+title: "superposition"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{superposition}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(MinervaTime)
+```
+
+This vignette uses ITS style vectors. In ITS, each environmental event is coded as a random vector. Collections of events are coded as the addition of constituent event vectors. 
+
+```{r}
+library(RsemanticLibrarian)
+library(ggplot2)
+#some_vectors <- make_event_vectors(1:200,10000,type='riv',sparsity=.4)
+
+#mean_cos <- c()
+
+cos_df <- data.frame()
+for(vec_length in c(100,1000,10000,100000)){
+  print(vec_length)
+  for(sparse in c(.1,.5,.9)){
+    some_vectors <- make_event_vectors(1:200,vec_length,type='riv',sparsity=sparse)
+    for(i in seq(2,200,20)){
+      ids <- 1:i
+      mean_similarity <- mean(cosine_x_to_m(colSums(some_vectors[ids,]),
+                                            some_vectors[ids,]))
+      t_df <- data.frame(sparsity = sparse,
+                         similarity = mean_similarity,
+                         vec_length =vec_length,
+                         num_traces = i)
+      cos_df <- rbind(cos_df,t_df)
+    }
+  }
+}
+
+cos_df$vec_length <- as.factor(cos_df$vec_length)
+ggplot(cos_df, aes(x=num_traces,y=similarity, group=vec_length, color=vec_length))+
+  geom_line()+
+  facet_wrap(~sparsity)
+
+```
+
+
+```{r}
+
+trial_timesteps = 200
+timeline <- rbind(make_trial(1,c("A","C"),c(1,50),c(20,10)),
+                  make_trial(2,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(3,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(4,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(5,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(6,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(7,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(8,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(9,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(10,c("B","D","E"),c(1,50,1),c(20,20,199))
+                  )
+
+event_vectors <- make_event_vectors(LETTERS[1:10],10000,type='riv',sparsity=.4)
+temporal_vectors <- make_event_vectors(1:200,10000,type='riv',sparsity=.4)
+
+timeline_vectors <- timeline_to_riv_vector(timeline,
+                                           event_vectors,
+                                           temporal_vectors,200)
+
+```
+
+## run model
+
+```{r}
+
+## define basic model parameters
+
+library(RsemanticLibrarian) # for cosine_x_to_m
+
+tau <- 3
+
+memory <- matrix(unlist(lapply(timeline_vectors,colSums)),
+            nrow = length(timeline_vectors),
+            byrow=TRUE)
+
+#memory <- matrix(rep(t(memory),20),ncol=ncol(memory),byrow=TRUE)
+
+probe <- event_vectors['E',]
+probe <- temporal_vectors[1,]
+
+activations <- cosine_x_to_m(probe,memory)
+
+echo <- colSums(memory * (c(activations)^3)) 
+
+lsa::cosine(echo,probe)
+
+cosine_x_to_m(echo,event_vectors)
+plot(cosine_x_to_m(echo,temporal_vectors))
+
+compound <- temporal_vectors*t(replicate(dim(temporal_vectors)[1],event_vectors['A',]))
+
+plot(cosine_x_to_m(echo,compound))
+
+lsa::cosine(event_vectors['A',],timeline_vectors[[1]][1,])
+lsa::cosine(temporal_vectors[1,],timeline_vectors[[1]][1,])
+lsa::cosine(event_vectors['A',]*temporal_vectors[1,],timeline_vectors[[1]][1,])
+lsa::cosine(event_vectors['A',]+
+              temporal_vectors[1,]+
+              (event_vectors['A',]*temporal_vectors[1,]),
+            timeline_vectors[[1]][1,])
+
+lsa::cosine(event_vectors['A',],timeline_vectors[[1]][2,])
+lsa::cosine(temporal_vectors[2,],timeline_vectors[[1]][2,])
+lsa::cosine(event_vectors['A',]*temporal_vectors[2,],timeline_vectors[[1]][2,])
+lsa::cosine(event_vectors['A',]+
+              temporal_vectors[2,]+
+              (event_vectors['A',]*temporal_vectors[2,]),
+            timeline_vectors[[1]][2,])
+
+lsa::cosine(event_vectors['B',],timeline_vectors[[2]][1,])
+lsa::cosine(temporal_vectors[1,],timeline_vectors[[2]][1,])
+lsa::cosine(event_vectors['B',]*temporal_vectors[1,],timeline_vectors[[2]][1,])
+lsa::cosine(normalize_vector(event_vectors['B',]+
+              temporal_vectors[1,]+
+              (event_vectors['B',]*temporal_vectors[1,]))+
+              event_vectors['E',]+
+              (event_vectors['E',]*temporal_vectors[1,]),
+            timeline_vectors[[2]][1,])
+
+a<- event_vectors['A',]+
+              temporal_vectors[1,]+
+              (event_vectors['A',]*temporal_vectors[1,])
+lsa::cosine(a,a)
+
+
+lsa::cosine(event_vectors['A',],memory[1,])
+plot(cosine_x_to_m(memory[1,],event_vectors))
+
+lsa::cosine(temporal_vectors[5,],colSums(temporal_vectors))
+lsa::cosine(colSums(temporal_vectors),memory[1,])
+
+
+lsa::cosine(normalize_vector(memory[1,]),normalize_vector(memory[2,]))
+
+
+
+lsa::cosine(memory[1,],event_vectors['C',]*temporal_vectors[53,])
+lsa::cosine(memory[1,],temporal_vectors[5,])
+lsa::cosine(memory[1,],event_vectors['E',])
+
+
+compound <- temporal_vectors*t(replicate(dim(temporal_vectors)[1],event_vectors['A',]))
+plot(cosine_x_to_m(memory[1,],compound))
+
+```
+
+```{r}
+
+trial_timesteps = 200
+timeline <- rbind(make_trial(1,c("A","C"),c(1,50),c(20,10)),
+                  make_trial(2,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(3,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(4,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(5,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(6,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(7,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(8,c("B","D","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(9,c("A","C","E"),c(1,50,1),c(20,20,199)),
+                  make_trial(10,c("B","D","E"),c(1,50,1),c(20,20,199))
+                  )
+
+timeline <- lapply(1:1000,FUN = function(x) make_trial(x,c("A","C"),c(1,50),c(40,40)))
+timeline <- dplyr::bind_rows(timeline)
+
+event_vectors <- make_event_vectors(LETTERS[1:10],1000,type='binomial')
+temporal_vectors <- make_event_vectors(1:200,1000,type='binomial')
+
+timeline_vectors <- timeline_to_vector_noise(timeline,
+                                             event_vectors,
+                                             temporal_vectors,200,
+                                             noise=TRUE,
+                                             L=.2)
+
+```
+
+```{r}
+
+## define basic model parameters
+
+library(RsemanticLibrarian) # for cosine_x_to_m
+
+tau <- 3
+
+memory <- matrix(unlist(lapply(timeline_vectors,colSums)),
+            nrow = length(timeline_vectors),
+            byrow=TRUE)
+
+#memory <- matrix(rep(t(memory),20),ncol=ncol(memory),byrow=TRUE)
+
+probe <- event_vectors['A',]
+probe <- temporal_vectors[1,]
+
+activations <- cosine_x_to_m(probe,memory)
+
+echo <- colSums(memory * (c(activations)^3)) 
+
+lsa::cosine(echo,probe)
+
+cosine_x_to_m(echo,event_vectors)
+plot(cosine_x_to_m(echo,temporal_vectors))
+
+compound <- vec_x_mat(event_vectors['C',],temporal_vectors)
+
+plot(cosine_x_to_m(echo,compound))
+
+
+```
+
+
+

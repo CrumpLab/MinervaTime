@@ -165,6 +165,8 @@ make_temporal_vectors <- function(num_timesteps = 200, overlap = 2){
 #'
 #' @param event_names character vector, names for each event
 #' @param vector_length integer, number of 1s for each vector
+#' @param type string, 'field' sets all values in each event vector to 1, which is used for the concatenation approach, 'riv' creates sparse random index vectors used in the superposition approach.
+#' @param sparsity numeric, proportion of non-zero elements (1s, or -1s) in a random index vector
 #'
 #' @return matrix
 #' @export
@@ -172,12 +174,42 @@ make_temporal_vectors <- function(num_timesteps = 200, overlap = 2){
 #' @examples
 #' make_event_vectors()
 make_event_vectors <- function(event_names = LETTERS[1:10],
-                               vector_length = 10) {
-  event_vectors <- matrix(1,
-                          ncol = vector_length,
-                          nrow = length(event_names))
+                               vector_length = 10,
+                               type = 'field',
+                               sparsity = .1) {
+  if(type == 'field'){
+    event_vectors <- matrix(1,
+                            ncol = vector_length,
+                            nrow = length(event_names))
 
-  row.names(event_vectors) <- event_names
+    row.names(event_vectors) <- event_names
+  }
+
+  if(type == 'riv'){
+
+    index_vector <- c(rep(1,round((sparsity/2)*vector_length)),
+                      rep(-1,round((sparsity/2)*vector_length)),
+                      rep(0,vector_length-(round(sparsity*vector_length)))
+    )
+
+    event_vectors <-t(replicate(length(event_names),
+                                sample(index_vector)))
+
+    row.names(event_vectors) <- event_names
+  }
+
+  if(type == 'binomial') {
+
+    index_vector <- c(rep(1,round(vector_length/2)),
+                      rep(-1,round(vector_length/2))
+    )
+
+    event_vectors <-t(replicate(length(event_names),
+                                sample(index_vector)))
+
+    row.names(event_vectors) <- event_names
+
+  }
 
   return(event_vectors)
 
@@ -246,4 +278,146 @@ timeline_to_vector <- function(timeline,
   }
 
   return(timeline_list)
+}
+
+#' Convert timeline to lists of riv environment vectors
+#'
+#' @param timeline dataframe, created by make_timeline()
+#' @param event_vectors matrix, created by make_event_vectors()
+#' @param temporal_vectors matrix, created by make_temporal_vectors()
+#' @param timesteps integer, number of timesteps per trial
+#'
+#' @return list, containing a environment vector matrix for each trial.
+#' @export
+#'
+#' @examples
+timeline_to_riv_vector <- function(timeline,
+                               event_vectors,
+                               temporal_vectors,
+                               timesteps = 200) {
+  timeline_list <- list()
+
+  # iterate through each trial
+  for(t in 1:max(timeline$trial_num)){
+
+    # get events for current trial
+    current_trial <- timeline[timeline$trial_num == t,]
+
+    # create blank matrix for event
+    e_matrix <- temporal_vectors
+
+    # loop through each event name in trial
+    for (e in 1:length(current_trial$event)){
+
+      # add event vector for specified durations in matrix
+
+      the_event <- t(replicate(length((current_trial[e,'onset']:current_trial[e,'offset'])),event_vectors[current_trial[e,'event'],]))
+
+      the_event_by_time <- t(replicate(length((current_trial[e,'onset']:current_trial[e,'offset'])),event_vectors[current_trial[e,'event'],])) * temporal_vectors[(current_trial[e,'onset']:current_trial[e,'offset']),]
+
+      e_matrix[(current_trial[e,'onset']:current_trial[e,'offset']),] <- e_matrix[(current_trial[e,'onset']:current_trial[e,'offset']),] + the_event + the_event_by_time
+
+    }
+
+    # save to list
+    timeline_list[[t]] <- e_matrix
+  }
+
+  return(timeline_list)
+}
+
+#' Convert timeline to environment vectors with noise
+#'
+#' @param timeline dataframe, created by make_timeline()
+#' @param event_vectors matrix, created by make_event_vectors()
+#' @param temporal_vectors matrix, created by make_temporal_vectors()
+#' @param timesteps integer, number of timesteps per trial
+#'
+#' @return list, containing a environment vector matrix for each trial.
+#' @export
+#'
+#' @examples
+timeline_to_vector_noise <- function(timeline,
+                                   event_vectors,
+                                   temporal_vectors,
+                                   timesteps = 200,
+                                   noise = TRUE,
+                                   L = .1) {
+  timeline_list <- list()
+
+  # iterate through each trial
+  for(t in 1:max(timeline$trial_num)){
+
+    # get events for current trial
+    current_trial <- timeline[timeline$trial_num == t,]
+
+    # get vectors
+    t_vectors <- temporal_vectors
+    e_vectors <- event_vectors[current_trial[,'event'],]
+
+    te_vectors <- matrix(0,nrow=1, ncol=dim(temporal_vectors)[2])
+    for (e in 1:dim(e_vectors)[1]){
+      e_onset <- current_trial[e,'onset']
+      e_offset <- current_trial[e,'offset']
+      te_vectors <- rbind(te_vectors,
+                          vec_x_mat(e_vectors[e,],
+                                    t_vectors[e_onset:e_offset,]))
+    }
+    te_vectors <- te_vectors[-1,]
+
+    e_matrix <- rbind(t_vectors,
+                      e_vectors,
+                      te_vectors)
+
+    if(noise == TRUE){
+      e_matrix <- add_noise_to_matrix(e_matrix,
+                                      L,
+                                      merge=TRUE)
+    }
+
+    # save to list
+    timeline_list[[t]] <- e_matrix
+  }
+
+  return(timeline_list)
+}
+
+#' Normalize a vector by max absolute value
+#'
+#' @param x numeric vector, a vector of numbers
+#'
+#' @return numeric vector, the vector divided by the largest absolute value in the vector
+#' @examples
+#' a <- c(1,2,3)
+#' normalize_vector(a)
+#'
+#' @export
+normalize_vector <- function (x) {return(x/abs(max(x)))}
+
+vec_x_mat <- function(v,m){
+  return(t(t(m)*v))
+}
+
+#' Add noise or create noise matrix
+#'
+#' @param x matrix
+#' @param learning_rate numeric from 0 to 1, determining probability that each element in the row is sampled perfectly
+#' @param merge logical default is TRUE and return original matrix multiplied by noise matrix. FALSE will return only the noise matrix
+#'
+#' @return
+#' @export
+#'
+#' @examples
+#'
+
+add_noise_to_matrix <- function(x, learning_rate= .9, merge= TRUE){
+  dims <- dim(x)
+  noise <- matrix(sample(c(1,0),
+                         size = dims[1] * dims[2],
+                         replace = TRUE,
+                         prob=c(learning_rate,1-learning_rate)),
+                  nrow = dims[1],
+                  ncol = dims[2])
+  if (merge == FALSE) return(noise)
+  if (merge == TRUE) return(x*noise)
 }

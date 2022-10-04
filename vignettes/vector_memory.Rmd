@@ -1,0 +1,119 @@
+---
+title: "vector_memory"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{vector_memory}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval=FALSE
+)
+```
+
+```{r setup}
+library(MinervaTime)
+```
+
+Tests of vector storage capacity
+
+# RPM vectors
+
+```{r}
+library(RsemanticLibrarian)
+library(ggplot2)
+
+cos_df <- data.frame()
+for(vec_length in c(100,1000,10000)){
+  print(vec_length)
+  for(sparse in c(.1,.5,.9)){
+    some_vectors <- make_event_vectors(1:200,vec_length,type='riv',sparsity=sparse)
+    for(i in seq(2,200,20)){
+      ids <- 1:i
+      mean_similarity <- mean(cosine_x_to_m(colSums(some_vectors[ids,]),
+                                            some_vectors[ids,]))
+      t_df <- data.frame(sparsity = sparse,
+                         similarity = mean_similarity,
+                         vec_length =vec_length,
+                         num_traces = i)
+      cos_df <- rbind(cos_df,t_df)
+    }
+  }
+}
+
+cos_df$vec_length <- as.factor(cos_df$vec_length)
+ggplot(cos_df, aes(x=num_traces,y=similarity, group=vec_length, color=vec_length))+
+  geom_line()+
+  facet_wrap(~sparsity)
+
+```
+
+## RPM vectors with sequential normalized adding
+
+```{r}
+
+sequential_norm_colSums <- function(x){
+  superposition_vector <- x[1,]
+  for(i in 2:dim(x)[1]){
+    superposition_vector <- normalize_vector(superposition_vector + x[i,])
+  }
+  return(superposition_vector)
+}
+
+a <- sequential_norm_colSums(some_vectors)
+
+cos_df <- data.frame()
+for(vec_length in c(100,1000,10000)){
+  print(vec_length)
+  for(sparse in c(.1,.5,.9)){
+    some_vectors <- make_event_vectors(1:200,vec_length,type='riv',sparsity=sparse)
+    for(i in seq(2,200,20)){
+      ids <- 1:i
+      mean_similarity <- mean(cosine_x_to_m(sequential_norm_colSums(some_vectors[ids,]),
+                                            some_vectors[ids,]))
+      t_df <- data.frame(sparsity = sparse,
+                         similarity = mean_similarity,
+                         vec_length =vec_length,
+                         num_traces = i)
+      cos_df <- rbind(cos_df,t_df)
+    }
+  }
+}
+
+cos_df$vec_length <- as.factor(cos_df$vec_length)
+ggplot(cos_df, aes(x=num_traces,y=similarity, group=vec_length, color=vec_length))+
+  geom_line()+
+  facet_wrap(~sparsity)
+
+```
+## one hot coding
+
+```{r}
+
+
+cos_df <- data.frame()
+for(vec_length in c(200,1000,2000)){
+  print(vec_length)
+    some_vectors <- diag(vec_length)
+    for(i in seq(2,200,20)){
+      ids <- 1:i
+      mean_similarity <- mean(cosine_x_to_m(colSums(some_vectors[ids,]),
+                                            some_vectors[ids,]))
+      t_df <- data.frame(
+                         similarity = mean_similarity,
+                         vec_length =vec_length,
+                         num_traces = i)
+      cos_df <- rbind(cos_df,t_df)
+    }
+}
+
+cos_df$vec_length <- as.factor(cos_df$vec_length)
+ggplot(cos_df, aes(x=num_traces,y=similarity, group=vec_length, color=vec_length))+
+  geom_line()
+
+```
+
